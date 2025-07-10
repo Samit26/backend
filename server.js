@@ -36,6 +36,9 @@ app.use(
       "https://snapvault-pdf.netlify.app",
       "http://localhost:5173",
       "http://localhost:3000",
+      "http://localhost:8080",
+      "http://127.0.0.1:8080",
+      "http://localhost:4173",
     ],
     credentials: true,
   })
@@ -73,28 +76,59 @@ const orderStore = new Map();
 // Store for completed payments (in production, use a database)
 const completedPayments = new Map();
 
+// Define package configurations
+const packageConfigs = {
+  "Starter Viral Pack": {
+    price: 99,
+    pdfs: ["Luxury_Reel_Bundle.pdf"],
+    description: "75+ viral content ideas + Bonus 5 tools",
+  },
+  "Pro Viral Pack": {
+    price: 299,
+    pdfs: ["Premium_Digital_Bundle_2025.pdf"],
+    description: "150+ viral content ideas + 10+ bonus tools",
+  },
+  "Special Combo Deal": {
+    price: 399,
+    pdfs: ["Luxury_Reel_Bundle.pdf", "Premium_Digital_Bundle_2025.pdf"],
+    description: "Complete bundle with 225+ content ideas",
+  },
+};
+
 // Route to create Razorpay order
 app.post("/api/create-order", async (req, res) => {
   try {
-    const { fullName, email, mobile } = req.body;
+    const { fullName, email, mobile, packageName } = req.body;
 
     // Validate required fields
-    if (!fullName || !email || !mobile) {
+    if (!fullName || !email || !mobile || !packageName) {
       return res.status(400).json({
         success: false,
-        message: "All fields (fullName, email, mobile) are required",
+        message:
+          "All fields (fullName, email, mobile, packageName) are required",
       });
     }
 
+    // Validate package name
+    if (!packageConfigs[packageName]) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid package selected",
+      });
+    }
+
+    const selectedPackage = packageConfigs[packageName];
+
     // Create order options
     const options = {
-      amount: parseInt(process.env.PDF_PRICE) * 100, // amount in paise
+      amount: selectedPackage.price * 100, // amount in paise
       currency: process.env.PDF_CURRENCY,
       receipt: `receipt_${Date.now()}`,
       notes: {
         fullName,
         email,
         mobile,
+        packageName,
       },
     };
 
@@ -106,6 +140,8 @@ app.post("/api/create-order", async (req, res) => {
       fullName,
       email,
       mobile,
+      packageName,
+      pdfs: selectedPackage.pdfs,
       amount: options.amount,
       currency: options.currency,
       createdAt: new Date(),
@@ -175,6 +211,16 @@ app.post("/api/verify-payment", async (req, res) => {
           downloadUrl: `${
             process.env.BASE_URL || "http://localhost:5000"
           }/api/download-pdf/${downloadToken}`,
+          directDownloadUrls: orderData.pdfs.map((pdfFile, index) => ({
+            url: `${
+              process.env.BASE_URL || "http://localhost:5000"
+            }/api/download-file/${downloadToken}/${index + 1}`,
+            filename:
+              pdfFile === "Luxury_Reel_Bundle.pdf"
+                ? "Luxury Reel Bundle.pdf"
+                : "Premium Digital Bundle 2025.pdf",
+            index: index + 1,
+          })),
           downloadToken: downloadToken,
           customerData: orderData,
         });
@@ -233,7 +279,32 @@ app.get("/api/download-pdf/:token", (req, res) => {
     paymentData.downloadedAt = new Date();
     completedPayments.set(token, paymentData);
 
-    // Return download page HTML with both PDFs
+    // Return download page HTML with appropriate PDFs
+    const generatePDFItems = (pdfs) => {
+      return pdfs
+        .map((pdfFile, index) => {
+          const fileNumber = index + 1;
+          let title, description;
+
+          if (pdfFile === "Luxury_Reel_Bundle.pdf") {
+            title = "📄 Luxury Reel Bundle";
+            description = "Premium collection of luxury lifestyle reel ideas";
+          } else if (pdfFile === "Premium_Digital_Bundle_2025.pdf") {
+            title = "📄 Premium Digital Bundle 2025";
+            description = "Complete digital content creation bundle for 2025";
+          }
+
+          return `
+          <div class="pdf-item">
+            <h3>${title}</h3>
+            <p>${description}</p>
+            <a href="/api/download-file/${token}/${fileNumber}" class="download-btn">Download PDF ${fileNumber}</a>
+          </div>
+        `;
+        })
+        .join("");
+    };
+
     const downloadPageHTML = `
     <!DOCTYPE html>
     <html>
@@ -248,6 +319,7 @@ app.get("/api/download-pdf/:token", (req, res) => {
         .download-btn { background: #7c3aed; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; font-weight: bold; }
         .download-btn:hover { background: #6d28d9; }
         .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+        .package-info { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center; }
       </style>
     </head>
     <body>
@@ -255,22 +327,22 @@ app.get("/api/download-pdf/:token", (req, res) => {
         <div class="success-icon">🎉</div>
         <h1>Thank You for Your Purchase!</h1>
         <p>Hi <strong>${paymentData.fullName}</strong>,</p>
-        <p>Your payment was successful! Download your PDF bundle below:</p>
+        <p>Your payment was successful! Download your PDF(s) below:</p>
         
-        <div class="pdf-item">
-          <h3>📄 Luxury Reel Bundle</h3>
-          <p>Premium collection of luxury lifestyle reel ideas</p>
-          <a href="/api/download-file/${token}/1" class="download-btn">Download PDF 1</a>
+        <div class="package-info">
+          <h3>� ${paymentData.packageName}</h3>
+          <p>Your selected package is ready for download</p>
         </div>
         
-        <div class="pdf-item">
-          <h3>📄 Premium Digital Bundle 2025</h3>
-          <p>Complete digital content creation bundle for 2025</p>
-          <a href="/api/download-file/${token}/2" class="download-btn">Download PDF 2</a>
-        </div>
+        ${generatePDFItems(
+          paymentData.pdfs || [
+            "Luxury_Reel_Bundle.pdf",
+            "Premium_Digital_Bundle_2025.pdf",
+          ]
+        )}
         
         <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center;">
-          <p><strong>💡 Tip:</strong> Both PDFs have also been sent to your email: <strong>${
+          <p><strong>💡 Tip:</strong> Your PDF(s) have also been sent to your email: <strong>${
             paymentData.email
           }</strong></p>
         </div>
@@ -308,20 +380,26 @@ app.get("/api/download-file/:token/:fileNumber", (req, res) => {
       return res.status(404).send("Invalid or expired download link");
     }
 
-    let pdfPath, filename;
+    const fileIndex = parseInt(fileNumber) - 1;
+    const userPdfs = paymentData.pdfs || [
+      "Luxury_Reel_Bundle.pdf",
+      "Premium_Digital_Bundle_2025.pdf",
+    ];
 
-    if (fileNumber === "1") {
-      pdfPath = path.join(__dirname, "assets", "Luxury_Reel_Bundle.pdf");
-      filename = "Luxury Reel Bundle.pdf";
-    } else if (fileNumber === "2") {
-      pdfPath = path.join(
-        __dirname,
-        "assets",
-        "Premium_Digital_Bundle_2025.pdf"
-      );
-      filename = "Premium Digital Bundle 2025.pdf";
-    } else {
+    if (fileIndex < 0 || fileIndex >= userPdfs.length) {
       return res.status(404).send("File not found");
+    }
+
+    const pdfFileName = userPdfs[fileIndex];
+    const pdfPath = path.join(__dirname, "assets", pdfFileName);
+
+    let displayName;
+    if (pdfFileName === "Luxury_Reel_Bundle.pdf") {
+      displayName = "Luxury Reel Bundle.pdf";
+    } else if (pdfFileName === "Premium_Digital_Bundle_2025.pdf") {
+      displayName = "Premium Digital Bundle 2025.pdf";
+    } else {
+      displayName = pdfFileName;
     }
 
     if (!fs.existsSync(pdfPath)) {
@@ -330,7 +408,10 @@ app.get("/api/download-file/:token/:fileNumber", (req, res) => {
 
     // Set headers for download
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${displayName}"`
+    );
 
     // Send the PDF file
     res.sendFile(pdfPath, (err) => {
@@ -339,7 +420,7 @@ app.get("/api/download-file/:token/:fileNumber", (req, res) => {
         res.status(500).send("Failed to download PDF");
       } else {
         console.log(
-          `${filename} downloaded by ${paymentData.email} at ${new Date()}`
+          `${displayName} downloaded by ${paymentData.email} at ${new Date()}`
         );
       }
     });
@@ -352,29 +433,52 @@ app.get("/api/download-file/:token/:fileNumber", (req, res) => {
 // Function to send PDF via email
 async function sendPDFEmail(orderData, downloadToken) {
   try {
-    const pdfPath1 = path.join(__dirname, "assets", "Luxury_Reel_Bundle.pdf");
-    const pdfPath2 = path.join(
-      __dirname,
-      "assets",
-      "Premium_Digital_Bundle_2025.pdf"
-    );
+    const userPdfs = orderData.pdfs || [
+      "Luxury_Reel_Bundle.pdf",
+      "Premium_Digital_Bundle_2025.pdf",
+    ];
+    const attachments = [];
+    const pdfDescriptions = [];
 
-    // Check if PDF files exist
-    if (!fs.existsSync(pdfPath1)) {
-      throw new Error("First PDF file not found");
-    }
-    if (!fs.existsSync(pdfPath2)) {
-      throw new Error("Second PDF file not found");
+    // Build attachments and descriptions based on user's package
+    for (const pdfFile of userPdfs) {
+      const pdfPath = path.join(__dirname, "assets", pdfFile);
+
+      if (!fs.existsSync(pdfPath)) {
+        throw new Error(`PDF file not found: ${pdfFile}`);
+      }
+
+      let filename, description;
+      if (pdfFile === "Luxury_Reel_Bundle.pdf") {
+        filename = "Luxury Reel Bundle.pdf";
+        description =
+          "📄 <strong>Luxury Reel Bundle</strong> - Premium collection of luxury lifestyle reel ideas";
+      } else if (pdfFile === "Premium_Digital_Bundle_2025.pdf") {
+        filename = "Premium Digital Bundle 2025.pdf";
+        description =
+          "📄 <strong>Premium Digital Bundle 2025</strong> - Complete digital content creation bundle";
+      }
+
+      attachments.push({
+        filename: filename,
+        path: pdfPath,
+        contentType: "application/pdf",
+      });
+
+      pdfDescriptions.push(description);
     }
 
     const downloadUrl = `${
       process.env.BASE_URL || "http://localhost:5000"
     }/api/download-pdf/${downloadToken}`;
 
+    const packageName = orderData.packageName || "PDF Bundle";
+    const packageInfo = packageConfigs[packageName];
+
     const mailOptions = {
       from: process.env.EMAIL_FROM,
       to: orderData.email,
-      subject: `🎉 Your PDF Bundle Purchase - ${process.env.PDF_NAME}`,
+      subject: `🎉 Your ${packageName} Purchase - Ready for Download!`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -399,31 +503,39 @@ async function sendPDFEmail(orderData, downloadToken) {
             </div>
             <div class="content">
               <h2>Hi ${orderData.fullName},</h2>
-              <p>Thank you for purchasing <strong>"${
-                process.env.PDF_NAME
-              }"</strong>!</p>
+              <p>Thank you for purchasing <strong>"${packageName}"</strong>!</p>
               
               <div class="pdf-bundle">
-                <h3>📦 Your PDF Bundle Includes:</h3>
+                <h3>📦 Your ${packageName} Includes:</h3>
                 <ul>
-                  <li>📄 <strong>Luxury Reel Bundle</strong> - Premium collection of luxury lifestyle reel ideas</li>
-                  <li>📄 <strong>Premium Digital Bundle 2025</strong> - Complete digital content creation bundle</li>
+                  ${pdfDescriptions.map((desc) => `<li>${desc}</li>`).join("")}
                 </ul>
+                ${
+                  packageInfo
+                    ? `<p><em>${packageInfo.description}</em></p>`
+                    : ""
+                }
               </div>
               
-              <p>Both PDF guides are attached to this email and you can also download them using the button below:</p>
+              <p>${
+                userPdfs.length > 1 ? "All PDF guides are" : "Your PDF guide is"
+              } attached to this email and you can also download ${
+        userPdfs.length > 1 ? "them" : "it"
+      } using the button below:</p>
               
               <div style="text-align: center;">
-                <a href="${downloadUrl}" class="download-btn">📥 Download PDF Bundle Now</a>
+                <a href="${downloadUrl}" class="download-btn">📥 Download ${
+        userPdfs.length > 1 ? "PDFs" : "PDF"
+      } Now</a>
               </div>
               
               <h3>What you'll get:</h3>
               <ul>
-                <li>✅ 150+ trending, copyright-free content ideas</li>
+                <li>✅ High-quality, trending content ideas</li>
                 <li>✅ Proven strategies for viral content</li>
                 <li>✅ Safe monetization opportunities</li>
                 <li>✅ Bonus creator resources and templates</li>
-                <li>✅ Lifetime access to both guides</li>
+                <li>✅ Lifetime access to your guides</li>
               </ul>
               
               <p><strong>Important:</strong> Save this email for future reference. The download links will remain active.</p>
@@ -448,22 +560,11 @@ async function sendPDFEmail(orderData, downloadToken) {
         </body>
         </html>
       `,
-      attachments: [
-        {
-          filename: "Luxury Reel Bundle.pdf",
-          path: pdfPath1,
-          contentType: "application/pdf",
-        },
-        {
-          filename: "Premium Digital Bundle 2025.pdf",
-          path: pdfPath2,
-          contentType: "application/pdf",
-        },
-      ],
+      attachments: attachments,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log("PDF sent to:", orderData.email);
+    console.log(`${packageName} PDFs sent to:`, orderData.email);
 
     return { success: true, message: "Email sent successfully" };
   } catch (error) {
@@ -513,6 +614,156 @@ app.get("/api/admin/stats", (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get statistics",
+    });
+  }
+});
+
+// Contact form submission endpoint
+app.post("/contact", async (req, res) => {
+  try {
+    const { fullName, email, issue, timestamp } = req.body;
+
+    // Validate required fields
+    if (!fullName || !email || !issue) {
+      return res.status(400).json({
+        success: false,
+        error: "All fields (fullName, email, issue) are required",
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide a valid email address",
+      });
+    }
+
+    // Create email content for admin notification
+    const adminEmailContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 10px;">
+          🆘 New Contact Form Submission
+        </h2>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #e67e22; margin-top: 0;">Customer Details:</h3>
+          <p><strong>Name:</strong> ${fullName}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Submitted:</strong> ${new Date(
+            timestamp
+          ).toLocaleString()}</p>
+        </div>
+        
+        <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ffc107;">
+          <h3 style="color: #856404; margin-top: 0;">Issue Description:</h3>
+          <p style="color: #856404; white-space: pre-wrap;">${issue}</p>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background-color: #e8f5e8; border-radius: 8px;">
+          <p style="margin: 0; color: #2d5a2d;">
+            <strong>📧 Reply to:</strong> ${email}<br>
+            <strong>⏰ Response Time:</strong> Within 24 hours<br>
+            <strong>🔗 Admin Dashboard:</strong> Check for recent activity
+          </p>
+        </div>
+      </div>
+    `;
+
+    // Create auto-reply email for customer
+    const customerEmailContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 10px;">
+          ✅ We've Received Your Message!
+        </h2>
+        
+        <p>Hi ${fullName},</p>
+        
+        <p>Thank you for reaching out to us! We've successfully received your message and our support team has been notified.</p>
+        
+        <div style="background-color: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #2d5a2d; margin-top: 0;">📋 Your Message:</h3>
+          <p style="color: #2d5a2d; white-space: pre-wrap; font-style: italic;">"${issue}"</p>
+        </div>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #495057;">⏰ What happens next?</h3>
+          <ul style="color: #495057;">
+            <li>Our team will review your message within 2-4 hours</li>
+            <li>You'll receive a personalized response within 24 hours</li>
+            <li>For urgent issues, we prioritize payment and download problems</li>
+          </ul>
+        </div>
+        
+        <p>If you have any additional information or urgent concerns, feel free to reply to this email.</p>
+        
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          <strong>Content Creator Support Team</strong> 💖<br>
+          <em>We care about every creator in our community!</em>
+        </p>
+        
+        <hr style="border: none; border-top: 1px solid #e9ecef; margin: 30px 0;">
+        <p style="font-size: 12px; color: #6c757d; text-align: center;">
+          This is an automated response. Please do not reply to this email address.
+        </p>
+      </div>
+    `;
+
+    // Configure email transporter
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    // Send admin notification email
+    const adminMailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: process.env.EMAIL_FROM, // Send to admin email
+      subject: `🆘 New Contact Form: ${fullName} - ${issue.substring(
+        0,
+        50
+      )}...`,
+      html: adminEmailContent,
+      replyTo: email, // Allow direct reply to customer
+    };
+
+    // Send customer auto-reply
+    const customerMailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "✅ We've received your message - Support Team",
+      html: customerEmailContent,
+    };
+
+    // Send both emails
+    await Promise.all([
+      transporter.sendMail(adminMailOptions),
+      transporter.sendMail(customerMailOptions),
+    ]);
+
+    console.log(`📧 Contact form submission processed for ${email}`);
+    console.log(`📋 Issue: ${issue.substring(0, 100)}...`);
+
+    res.json({
+      success: true,
+      message:
+        "Your message has been sent successfully! We'll get back to you within 24 hours.",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Error processing contact form:", error);
+
+    res.status(500).json({
+      success: false,
+      error:
+        "Failed to send your message. Please try again or email us directly.",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
