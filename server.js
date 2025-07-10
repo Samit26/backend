@@ -79,17 +79,17 @@ const completedPayments = new Map();
 // Define package configurations
 const packageConfigs = {
   "Starter Viral Pack": {
-    price: 99,
+    price: 49,
     pdfs: ["Luxury_Reel_Bundle.pdf"],
     description: "75+ viral content ideas + Bonus 5 tools",
   },
   "Pro Viral Pack": {
-    price: 299,
+    price: 49,
     pdfs: ["Premium_Digital_Bundle_2025.pdf"],
     description: "150+ viral content ideas + 10+ bonus tools",
   },
   "Special Combo Deal": {
-    price: 399,
+    price: 89,
     pdfs: ["Luxury_Reel_Bundle.pdf", "Premium_Digital_Bundle_2025.pdf"],
     description: "Complete bundle with 225+ content ideas",
   },
@@ -531,11 +531,15 @@ async function sendPDFEmail(orderData, downloadToken) {
               
               <h3>What you'll get:</h3>
               <ul>
-                <li>✅ High-quality, trending content ideas</li>
-                <li>✅ Proven strategies for viral content</li>
-                <li>✅ Safe monetization opportunities</li>
-                <li>✅ Bonus creator resources and templates</li>
-                <li>✅ Lifetime access to your guides</li>
+                <li>✅ Luxury Lifestyle</li>
+                <li>✅ Supercars & Private Jets</li>
+                <li>✅ Fitness & Motivation</li>
+                <li>✅ Business & Finance</li>
+                <li>✅ Fashion & Aesthetics</li>
+                <li>✅ Nature & Travel</li>
+                <li>✅ Cinematic B-Rolls</li>
+                <li>✅ Lo-fi & Vibes</li>
+                <li>✅ Anime, Gaming, and more</li>
               </ul>
               
               <p><strong>Important:</strong> Save this email for future reference. The download links will remain active.</p>
