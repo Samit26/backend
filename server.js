@@ -30,17 +30,45 @@ for (const envVar of requiredEnvVars) {
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Get allowed origins from environment variables
+const getAllowedOrigins = () => {
+  // Default development origins
+  const defaultOrigins = [
+    "https://snapvault-in.netlify.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:4173",
+  ];
+
+  // Get production/custom origins from environment
+  const envOrigins = [];
+
+  // Check for FRONTEND_URL (main production URL)
+  if (process.env.FRONTEND_URL) {
+    envOrigins.push(process.env.FRONTEND_URL);
+  }
+
+  // Check for additional allowed origins (comma-separated)
+  if (process.env.ALLOWED_ORIGINS) {
+    const additionalOrigins = process.env.ALLOWED_ORIGINS.split(",").map(
+      (url) => url.trim()
+    );
+    envOrigins.push(...additionalOrigins);
+  }
+
+  // Combine default development origins with environment origins
+  const allOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+  console.log("Allowed CORS origins:", allOrigins);
+  return allOrigins;
+};
+
 // Middleware
 app.use(
   cors({
-    origin: [
-      "https://snapvault-pdf.netlify.app",
-      "http://localhost:5173",
-      "http://localhost:3000",
-      "http://localhost:8080",
-      "http://127.0.0.1:8080",
-      "http://localhost:4173",
-    ],
+    origin: getAllowedOrigins(),
     credentials: true,
   })
 );
