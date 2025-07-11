@@ -76,6 +76,49 @@ const orderStore = new Map();
 // Store for completed payments (in production, use a database)
 const completedPayments = new Map();
 
+// File path for persistent storage
+const PAYMENTS_DATA_FILE = path.join(__dirname, "payments_data.json");
+
+// Load existing payment data on server start
+const loadPaymentData = () => {
+  try {
+    if (fs.existsSync(PAYMENTS_DATA_FILE)) {
+      const data = fs.readFileSync(PAYMENTS_DATA_FILE, "utf8");
+      const parsedData = JSON.parse(data);
+
+      // Convert array back to Map
+      if (parsedData.payments && Array.isArray(parsedData.payments)) {
+        parsedData.payments.forEach(([key, value]) => {
+          completedPayments.set(key, value);
+        });
+      }
+
+      console.log(
+        `✅ Loaded ${completedPayments.size} existing payment records`
+      );
+    }
+  } catch (error) {
+    console.error("Error loading payment data:", error);
+  }
+};
+
+// Save payment data to file
+const savePaymentData = () => {
+  try {
+    const data = {
+      payments: Array.from(completedPayments.entries()),
+      lastUpdated: new Date().toISOString(),
+    };
+
+    fs.writeFileSync(PAYMENTS_DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error("Error saving payment data:", error);
+  }
+};
+
+// Load payment data on startup
+loadPaymentData();
+
 // Define package configurations
 const packageConfigs = {
   "Starter Viral Pack": {
@@ -193,6 +236,13 @@ app.post("/api/verify-payment", async (req, res) => {
           downloaded: false,
         });
 
+        // Save payment data to persistent storage
+        savePaymentData();
+
+        console.log(
+          `💰 Payment completed! Total payments: ${completedPayments.size}`
+        );
+
         // Send email with PDF attachment
         try {
           await sendPDFEmail(orderData, downloadToken);
@@ -279,6 +329,9 @@ app.get("/api/download-pdf/:token", (req, res) => {
     paymentData.downloadedAt = new Date();
     completedPayments.set(token, paymentData);
 
+    // Save updated payment data
+    savePaymentData();
+
     // Return download page HTML with appropriate PDFs
     const generatePDFItems = (pdfs) => {
       return pdfs
@@ -310,16 +363,148 @@ app.get("/api/download-pdf/:token", (req, res) => {
     <html>
     <head>
       <title>Download Your PDFs</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #7c3aed 0%, #f97316 100%); min-height: 100vh; }
-        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-        h1 { color: #333; text-align: center; margin-bottom: 30px; }
-        .success-icon { text-align: center; font-size: 60px; margin-bottom: 20px; }
-        .pdf-item { background: #f8f9fa; padding: 20px; margin: 15px 0; border-radius: 8px; border-left: 4px solid #7c3aed; }
-        .download-btn { background: #7c3aed; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; font-weight: bold; }
-        .download-btn:hover { background: #6d28d9; }
-        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
-        .package-info { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center; }
+        * { box-sizing: border-box; }
+        body { 
+          font-family: Arial, sans-serif; 
+          margin: 0; 
+          padding: 10px; 
+          background: linear-gradient(135deg, #7c3aed 0%, #f97316 100%); 
+          min-height: 100vh;
+          line-height: 1.6;
+        }
+        .container { 
+          max-width: 600px; 
+          margin: 0 auto; 
+          background: white; 
+          border-radius: 10px; 
+          padding: 20px; 
+          box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+        }
+        @media (min-width: 768px) {
+          .container { padding: 40px; }
+          body { padding: 20px; }
+        }
+        h1 { 
+          color: #333; 
+          text-align: center; 
+          margin-bottom: 20px;
+          font-size: 1.5rem;
+        }
+        @media (min-width: 768px) {
+          h1 { 
+            margin-bottom: 30px;
+            font-size: 2rem;
+          }
+        }
+        .success-icon { 
+          text-align: center; 
+          font-size: 40px; 
+          margin-bottom: 15px; 
+        }
+        @media (min-width: 768px) {
+          .success-icon { 
+            font-size: 60px; 
+            margin-bottom: 20px; 
+          }
+        }
+        .pdf-item { 
+          background: #f8f9fa; 
+          padding: 15px; 
+          margin: 10px 0; 
+          border-radius: 8px; 
+          border-left: 4px solid #7c3aed; 
+        }
+        @media (min-width: 768px) {
+          .pdf-item { 
+            padding: 20px; 
+            margin: 15px 0; 
+          }
+        }
+        .pdf-item h3 {
+          margin: 0 0 8px 0;
+          font-size: 1.1rem;
+        }
+        .pdf-item p {
+          margin: 0 0 12px 0;
+          color: #666;
+          font-size: 0.9rem;
+        }
+        .download-btn { 
+          background: #7c3aed; 
+          color: white; 
+          padding: 10px 20px; 
+          text-decoration: none; 
+          border-radius: 5px; 
+          display: inline-block; 
+          margin: 8px 0; 
+          font-weight: bold;
+          font-size: 0.9rem;
+          width: 100%;
+          text-align: center;
+          transition: all 0.3s ease;
+        }
+        @media (min-width: 768px) {
+          .download-btn { 
+            padding: 12px 25px; 
+            margin: 10px 0;
+            width: auto;
+            font-size: 1rem;
+          }
+        }
+        .download-btn:hover { 
+          background: #6d28d9; 
+          transform: translateY(-2px);
+        }
+        .footer { 
+          text-align: center; 
+          margin-top: 20px; 
+          color: #666; 
+          font-size: 12px; 
+        }
+        @media (min-width: 768px) {
+          .footer { 
+            margin-top: 30px; 
+            font-size: 14px; 
+          }
+        }
+        .package-info { 
+          background: #e7f3ff; 
+          padding: 12px; 
+          border-radius: 5px; 
+          margin: 15px 0; 
+          text-align: center; 
+        }
+        @media (min-width: 768px) {
+          .package-info { 
+            padding: 15px; 
+            margin: 20px 0; 
+          }
+        }
+        .package-info h3 {
+          margin: 0 0 8px 0;
+          font-size: 1.1rem;
+        }
+        .package-info p {
+          margin: 0;
+          font-size: 0.9rem;
+        }
+        .tip-box {
+          background: #e7f3ff; 
+          padding: 12px; 
+          border-radius: 5px; 
+          margin: 15px 0; 
+          text-align: center;
+          font-size: 0.9rem;
+        }
+        @media (min-width: 768px) {
+          .tip-box { 
+            padding: 15px; 
+            margin: 20px 0; 
+            font-size: 1rem;
+          }
+        }
       </style>
     </head>
     <body>
@@ -330,7 +515,7 @@ app.get("/api/download-pdf/:token", (req, res) => {
         <p>Your payment was successful! Download your PDF(s) below:</p>
         
         <div class="package-info">
-          <h3>� ${paymentData.packageName}</h3>
+          <h3>📦 ${paymentData.packageName}</h3>
           <p>Your selected package is ready for download</p>
         </div>
         
@@ -341,7 +526,7 @@ app.get("/api/download-pdf/:token", (req, res) => {
           ]
         )}
         
-        <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center;">
+        <div class="tip-box">
           <p><strong>💡 Tip:</strong> Your PDF(s) have also been sent to your email: <strong>${
             paymentData.email
           }</strong></p>
@@ -357,9 +542,6 @@ app.get("/api/download-pdf/:token", (req, res) => {
     `;
 
     res.send(downloadPageHTML);
-    console.log(
-      `Download page accessed by ${paymentData.email} at ${new Date()}`
-    );
   } catch (error) {
     console.error("Error accessing download page:", error);
     res.status(500).json({
@@ -419,9 +601,6 @@ app.get("/api/download-file/:token/:fileNumber", (req, res) => {
         console.error("Error sending PDF:", err);
         res.status(500).send("Failed to download PDF");
       } else {
-        console.log(
-          `${displayName} downloaded by ${paymentData.email} at ${new Date()}`
-        );
       }
     });
   } catch (error) {
@@ -595,17 +774,56 @@ app.get("/health", (req, res) => {
 // Route to check download statistics (for admin use)
 app.get("/api/admin/stats", (req, res) => {
   try {
+    const paymentsArray = Array.from(completedPayments.values());
+
+    // Calculate package-wise statistics
+    const packageStats = {};
+    paymentsArray.forEach((payment) => {
+      if (!packageStats[payment.packageName]) {
+        packageStats[payment.packageName] = {
+          count: 0,
+          revenue: 0,
+        };
+      }
+      packageStats[payment.packageName].count++;
+      packageStats[payment.packageName].revenue += payment.amount / 100; // Convert from paise
+    });
+
+    // Calculate daily statistics for the last 7 days
+    const last7Days = [];
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dayStart = new Date(date.setHours(0, 0, 0, 0));
+      const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+
+      const dayPayments = paymentsArray.filter((p) => {
+        const paymentDate = new Date(p.completedAt);
+        return paymentDate >= dayStart && paymentDate <= dayEnd;
+      });
+
+      last7Days.push({
+        date: dayStart.toISOString().split("T")[0],
+        payments: dayPayments.length,
+        revenue: dayPayments.reduce((sum, p) => sum + p.amount / 100, 0),
+      });
+    }
+
     const stats = {
       totalPayments: completedPayments.size,
-      totalDownloads: Array.from(completedPayments.values()).filter(
-        (p) => p.downloaded
-      ).length,
-      recentPayments: Array.from(completedPayments.values())
+      totalRevenue: paymentsArray.reduce((sum, p) => sum + p.amount / 100, 0),
+      totalDownloads: paymentsArray.filter((p) => p.downloaded).length,
+      packageStats,
+      last7Days,
+      recentPayments: paymentsArray
         .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
         .slice(0, 10)
         .map((p) => ({
           email: p.email,
           fullName: p.fullName,
+          packageName: p.packageName,
+          amount: p.amount / 100,
           completedAt: p.completedAt,
           downloaded: p.downloaded,
           downloadedAt: p.downloadedAt,
@@ -618,6 +836,49 @@ app.get("/api/admin/stats", (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get statistics",
+    });
+  }
+});
+
+// Private endpoint to get payment count (for admin use only)
+app.get("/api/private/payment-count", (req, res) => {
+  try {
+    // Simple auth check - you can access this with a secret parameter
+    const authKey = req.query.key || req.headers["x-auth-key"];
+    const expectedKey = process.env.ADMIN_SECRET_KEY || "your-secret-key-here";
+
+    if (authKey !== expectedKey) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    // Get today's payments
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const paymentsArray = Array.from(completedPayments.values());
+    const todayPayments = paymentsArray.filter((p) => {
+      const paymentDate = new Date(p.completedAt);
+      return paymentDate >= today && paymentDate < tomorrow;
+    });
+
+    res.json({
+      success: true,
+      totalPayments: completedPayments.size,
+      todayPayments: todayPayments.length,
+      totalRevenue: paymentsArray.reduce((sum, p) => sum + p.amount / 100, 0),
+      todayRevenue: todayPayments.reduce((sum, p) => sum + p.amount / 100, 0),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error getting payment count:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get payment count",
     });
   }
 });
@@ -749,9 +1010,6 @@ app.post("/contact", async (req, res) => {
       transporter.sendMail(adminMailOptions),
       transporter.sendMail(customerMailOptions),
     ]);
-
-    console.log(`📧 Contact form submission processed for ${email}`);
-    console.log(`📋 Issue: ${issue.substring(0, 100)}...`);
 
     res.json({
       success: true,
