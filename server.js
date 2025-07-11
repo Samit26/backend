@@ -14,9 +14,10 @@ const requiredEnvVars = [
   "EMAIL_USER",
   "EMAIL_PASS",
   "EMAIL_FROM",
-  "PDF_PRICE",
   "PDF_CURRENCY",
-  "PDF_NAME",
+  "STARTER_PACK_PRICE",
+  "PRO_PACK_PRICE",
+  "COMBO_PACK_PRICE",
 ];
 
 for (const envVar of requiredEnvVars) {
@@ -122,17 +123,17 @@ loadPaymentData();
 // Define package configurations
 const packageConfigs = {
   "Starter Viral Pack": {
-    price: 49,
+    price: parseInt(process.env.STARTER_PACK_PRICE) || 49,
     pdfs: ["Luxury_Reel_Bundle.pdf"],
     description: "75+ viral content ideas + Bonus 5 tools",
   },
   "Pro Viral Pack": {
-    price: 49,
+    price: parseInt(process.env.PRO_PACK_PRICE) || 49,
     pdfs: ["Premium_Digital_Bundle_2025.pdf"],
     description: "150+ viral content ideas + 10+ bonus tools",
   },
   "Special Combo Deal": {
-    price: 89,
+    price: parseInt(process.env.COMBO_PACK_PRICE) || 89,
     pdfs: ["Luxury_Reel_Bundle.pdf", "Premium_Digital_Bundle_2025.pdf"],
     description: "Complete bundle with 225+ content ideas",
   },
@@ -769,6 +770,23 @@ app.get("/", (req, res) => {
 // Health check route
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date() });
+});
+
+// Route to get current package prices (for debugging/admin)
+app.get("/api/packages", (req, res) => {
+  try {
+    res.json({
+      success: true,
+      packages: packageConfigs,
+      timestamp: new Date(),
+    });
+  } catch (error) {
+    console.error("Error getting package info:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get package information",
+    });
+  }
 });
 
 // Route to check download statistics (for admin use)
