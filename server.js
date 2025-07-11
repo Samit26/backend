@@ -904,7 +904,7 @@ app.get("/api/private/payment-count", (req, res) => {
 // Contact form submission endpoint
 app.post("/contact", async (req, res) => {
   try {
-    const { fullName, email, issue, timestamp } = req.body;
+    const { fullName, email, phone, issue, timestamp } = req.body;
 
     // Validate required fields
     if (!fullName || !email || !issue) {
@@ -934,6 +934,7 @@ app.post("/contact", async (req, res) => {
           <h3 style="color: #e67e22; margin-top: 0;">Customer Details:</h3>
           <p><strong>Name:</strong> ${fullName}</p>
           <p><strong>Email:</strong> ${email}</p>
+          ${phone ? `<p><strong>Phone:</strong> ${phone}</p>` : ""}
           <p><strong>Submitted:</strong> ${new Date(
             timestamp
           ).toLocaleString()}</p>
@@ -947,6 +948,7 @@ app.post("/contact", async (req, res) => {
         <div style="margin-top: 30px; padding: 20px; background-color: #e8f5e8; border-radius: 8px;">
           <p style="margin: 0; color: #2d5a2d;">
             <strong>📧 Reply to:</strong> ${email}<br>
+            ${phone ? `<strong>📞 Phone:</strong> ${phone}<br>` : ""}
             <strong>⏰ Response Time:</strong> Within 24 hours<br>
             <strong>🔗 Admin Dashboard:</strong> Check for recent activity
           </p>
