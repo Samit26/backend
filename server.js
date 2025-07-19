@@ -3,14 +3,14 @@ const cors = require("cors");
 const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
-const Razorpay = require("razorpay");
+const { Cashfree, CFEnvironment } = require("cashfree-pg");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
 // Validate required environment variables
 const requiredEnvVars = [
-  "RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
+  "CASHFREE_APP_ID",
+  "CASHFREE_SECRET_KEY",
   "EMAIL_USER",
   "EMAIL_PASS",
   "EMAIL_FROM",
@@ -61,7 +61,6 @@ const getAllowedOrigins = () => {
   // Combine default development origins with environment origins
   const allOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
-  console.log("Allowed CORS origins:", allOrigins);
   return allOrigins;
 };
 
@@ -75,11 +74,21 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+// Initialize Cashfree
+const cashfree = new Cashfree();
+
+// Set credentials after initialization
+cashfree.XClientId = process.env.CASHFREE_APP_ID;
+cashfree.XClientSecret = process.env.CASHFREE_SECRET_KEY;
+cashfree.XEnvironment =
+  process.env.CASHFREE_ENVIRONMENT === "PRODUCTION"
+    ? CFEnvironment.PRODUCTION
+    : CFEnvironment.SANDBOX;
+
+console.log(
+  "Cashfree Environment:",
+  process.env.CASHFREE_ENVIRONMENT || "SANDBOX"
+);
 
 // Email transporter
 const transporter = nodemailer.createTransport({
@@ -102,51 +111,31 @@ transporter.verify((error, success) => {
 // Store for temporary order data (in production, use a database)
 const orderStore = new Map();
 
-// Store for completed payments (in production, use a database)
+// Store for completed payments (temporary, in-memory only)
 const completedPayments = new Map();
 
-// File path for persistent storage
-const PAYMENTS_DATA_FILE = path.join(__dirname, "payments_data.json");
+// Flag to prevent critical operations during server restart
+let isProcessingPayment = false;
 
-// Load existing payment data on server start
-const loadPaymentData = () => {
-  try {
-    if (fs.existsSync(PAYMENTS_DATA_FILE)) {
-      const data = fs.readFileSync(PAYMENTS_DATA_FILE, "utf8");
-      const parsedData = JSON.parse(data);
+// Clean up old orders from orderStore (run every 30 minutes)
+setInterval(() => {
+  const now = new Date();
+  const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
 
-      // Convert array back to Map
-      if (parsedData.payments && Array.isArray(parsedData.payments)) {
-        parsedData.payments.forEach(([key, value]) => {
-          completedPayments.set(key, value);
-        });
-      }
-
-      console.log(
-        `✅ Loaded ${completedPayments.size} existing payment records`
-      );
+  let cleanedCount = 0;
+  for (const [orderId, orderData] of orderStore.entries()) {
+    if (orderData.createdAt < thirtyMinutesAgo) {
+      orderStore.delete(orderId);
+      cleanedCount++;
     }
-  } catch (error) {
-    console.error("Error loading payment data:", error);
   }
-};
 
-// Save payment data to file
-const savePaymentData = () => {
-  try {
-    const data = {
-      payments: Array.from(completedPayments.entries()),
-      lastUpdated: new Date().toISOString(),
-    };
-
-    fs.writeFileSync(PAYMENTS_DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("Error saving payment data:", error);
+  if (cleanedCount > 0) {
+    console.log(
+      `🧹 Cleaned up ${cleanedCount} old orders from orderStore. Remaining: ${orderStore.size}`
+    );
   }
-};
-
-// Load payment data on startup
-loadPaymentData();
+}, 30 * 60 * 1000); // Run every 30 minutes
 
 // Define package configurations
 const packageConfigs = {
@@ -167,7 +156,7 @@ const packageConfigs = {
   },
 };
 
-// Route to create Razorpay order
+// Route to create Cashfree order
 app.post("/api/create-order", async (req, res) => {
   try {
     const { fullName, email, mobile, packageName } = req.body;
@@ -191,40 +180,55 @@ app.post("/api/create-order", async (req, res) => {
 
     const selectedPackage = packageConfigs[packageName];
 
-    // Create order options
-    const options = {
-      amount: selectedPackage.price * 100, // amount in paise
-      currency: process.env.PDF_CURRENCY,
-      receipt: `receipt_${Date.now()}`,
-      notes: {
-        fullName,
-        email,
-        mobile,
-        packageName,
+    // Generate unique order ID
+    const orderId = `order_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    // Create Cashfree order
+    const orderRequest = {
+      order_id: orderId,
+      order_amount: selectedPackage.price,
+      order_currency: process.env.PDF_CURRENCY || "INR",
+      customer_details: {
+        customer_id: `cust_${Date.now()}`,
+        customer_name: fullName,
+        customer_email: email,
+        customer_phone: mobile,
       },
+      order_meta: {
+        return_url: `${
+          process.env.FRONTEND_URL || "http://localhost:5173"
+        }/download-success`,
+        notify_url: `${
+          process.env.BACKEND_URL || "http://localhost:5000"
+        }/api/webhook`,
+      },
+      order_note: `Purchase of ${packageName}`,
     };
 
-    // Create order
-    const order = await razorpay.orders.create(options);
+    const response = await cashfree.PGCreateOrder(orderRequest);
 
     // Store order data temporarily
-    orderStore.set(order.id, {
+    orderStore.set(orderId, {
       fullName,
       email,
       mobile,
       packageName,
       pdfs: selectedPackage.pdfs,
-      amount: options.amount,
-      currency: options.currency,
+      amount: selectedPackage.price,
+      currency: process.env.PDF_CURRENCY || "INR",
       createdAt: new Date(),
+      paymentSessionId: response.data.payment_session_id,
     });
 
     res.json({
       success: true,
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID,
+      orderId: orderId,
+      amount: selectedPackage.price,
+      currency: process.env.PDF_CURRENCY || "INR",
+      paymentSessionId: response.data.payment_session_id,
+      environment: process.env.CASHFREE_ENVIRONMENT || "SANDBOX",
     });
   } catch (error) {
     console.error("Error creating order:", error);
@@ -238,51 +242,92 @@ app.post("/api/create-order", async (req, res) => {
 // Route to verify payment
 app.post("/api/verify-payment", async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      req.body;
+    isProcessingPayment = true;
+    const { orderId, paymentSessionId } = req.body;
 
-    // Verify signature
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
-      .digest("hex");
+    // Get order data
+    const orderData = orderStore.get(orderId);
 
-    if (expectedSignature === razorpay_signature) {
-      // Payment verified successfully
-      const orderData = orderStore.get(razorpay_order_id);
+    if (!orderData) {
+      return res.status(400).json({
+        success: false,
+        message: "Order not found or expired. Please try creating a new order.",
+      });
+    }
 
-      if (orderData) {
-        // Generate unique download token
+    // Verify payment status with Cashfree
+    let paymentDetails;
+    try {
+      // Try with the current API version (2025-01-01) first
+      paymentDetails = await cashfree.PGOrderFetchPayments(
+        "2025-01-01",
+        orderId
+      );
+    } catch (apiError) {
+      console.error("Error with API version 2025-01-01:", apiError.message);
+
+      // Try with 2023-08-01 API version
+      try {
+        paymentDetails = await cashfree.PGOrderFetchPayments(
+          "2023-08-01",
+          orderId
+        );
+      } catch (api2Error) {
+        console.error("Error with API version 2023-08-01:", api2Error.message);
+
+        // Try with 2022-09-01 API version
+        try {
+          paymentDetails = await cashfree.PGOrderFetchPayments(
+            "2022-09-01",
+            orderId
+          );
+        } catch (api3Error) {
+          console.error(
+            "Error with API version 2022-09-01:",
+            api3Error.message
+          );
+
+          // Try without API version parameter
+          try {
+            paymentDetails = await cashfree.PGOrderFetchPayments(orderId);
+          } catch (api4Error) {
+            console.error("Error without API version:", api4Error.message);
+            throw new Error(
+              `All API calls failed. Last error: ${api4Error.message}`
+            );
+          }
+        }
+      }
+    }
+
+    if (paymentDetails.data && paymentDetails.data.length > 0) {
+      const payment = paymentDetails.data[0];
+
+      if (payment.payment_status === "SUCCESS") {
+        // Payment verified successfully
         const downloadToken = crypto.randomBytes(32).toString("hex");
 
         // Store payment completion data
         completedPayments.set(downloadToken, {
           ...orderData,
-          paymentId: razorpay_payment_id,
-          orderId: razorpay_order_id,
+          paymentId: payment.cf_payment_id,
+          orderId: orderId,
           completedAt: new Date(),
           downloaded: false,
         });
 
-        // Save payment data to persistent storage
-        savePaymentData();
-
-        console.log(
-          `💰 Payment completed! Total payments: ${completedPayments.size}`
-        );
-
         // Send email with PDF attachment
         try {
           await sendPDFEmail(orderData, downloadToken);
-          console.log("PDF email sent successfully to:", orderData.email);
         } catch (emailError) {
           console.error("Error sending email:", emailError);
           // Don't fail the payment verification if email fails
         }
 
         // Clean up temporary store
-        orderStore.delete(razorpay_order_id);
+        orderStore.delete(orderId);
+
+        isProcessingPayment = false;
 
         res.json({
           success: true,
@@ -304,22 +349,41 @@ app.post("/api/verify-payment", async (req, res) => {
           customerData: orderData,
         });
       } else {
+        isProcessingPayment = false;
         res.status(400).json({
           success: false,
-          message: "Order not found",
+          message: "Payment failed or pending",
         });
       }
     } else {
+      isProcessingPayment = false;
       res.status(400).json({
         success: false,
-        message: "Invalid signature",
+        message: "No payment found for this order",
       });
     }
   } catch (error) {
-    console.error("Error verifying payment:", error);
+    isProcessingPayment = false;
+    console.error("=== Payment Verification Error ===");
+    console.error("Error message:", error.message);
+    console.error("Error code:", error.code);
+    console.error("Error status:", error.status);
+
+    // Only log the stack trace without circular references
+    if (error.stack) {
+      console.error("Error stack:", error.stack);
+    }
+
+    // If it's a Cashfree API error, log the response details safely
+    if (error.response) {
+      console.error("API Error Status:", error.response.status);
+      console.error("API Error Data:", error.response.data);
+    }
+
     res.status(500).json({
       success: false,
       message: "Payment verification failed",
+      error: error.message,
     });
   }
 });
@@ -357,9 +421,6 @@ app.get("/api/download-pdf/:token", (req, res) => {
     paymentData.downloaded = true;
     paymentData.downloadedAt = new Date();
     completedPayments.set(token, paymentData);
-
-    // Save updated payment data
-    savePaymentData();
 
     // Return download page HTML with appropriate PDFs
     const generatePDFItems = (pdfs) => {

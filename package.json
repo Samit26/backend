@@ -1,7 +1,7 @@
 {
   "name": "pdf-download-backend",
   "version": "1.0.0",
-  "description": "Backend API for PDF download with Razorpay integration",
+  "description": "Backend API for PDF download with Cashfree integration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,12 +11,12 @@
     "test:email": "node test-email.js"
   },
   "dependencies": {
+    "cashfree-pg": "^5.0.8",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "nodemailer": "^6.9.7",
-    "razorpay": "^2.9.2"
+    "nodemailer": "^6.9.7"
   },
   "devDependencies": {
     "concurrently": "^9.2.0",
