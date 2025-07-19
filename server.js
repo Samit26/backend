@@ -257,47 +257,13 @@ app.post("/api/verify-payment", async (req, res) => {
 
     // Verify payment status with Cashfree
     let paymentDetails;
+
+    // Try without API version parameter
     try {
-      // Try with the current API version (2025-01-01) first
-      paymentDetails = await cashfree.PGOrderFetchPayments(
-        "2025-01-01",
-        orderId
-      );
-    } catch (apiError) {
-      console.error("Error with API version 2025-01-01:", apiError.message);
-
-      // Try with 2023-08-01 API version
-      try {
-        paymentDetails = await cashfree.PGOrderFetchPayments(
-          "2023-08-01",
-          orderId
-        );
-      } catch (api2Error) {
-        console.error("Error with API version 2023-08-01:", api2Error.message);
-
-        // Try with 2022-09-01 API version
-        try {
-          paymentDetails = await cashfree.PGOrderFetchPayments(
-            "2022-09-01",
-            orderId
-          );
-        } catch (api3Error) {
-          console.error(
-            "Error with API version 2022-09-01:",
-            api3Error.message
-          );
-
-          // Try without API version parameter
-          try {
-            paymentDetails = await cashfree.PGOrderFetchPayments(orderId);
-          } catch (api4Error) {
-            console.error("Error without API version:", api4Error.message);
-            throw new Error(
-              `All API calls failed. Last error: ${api4Error.message}`
-            );
-          }
-        }
-      }
+      paymentDetails = await cashfree.PGOrderFetchPayments(orderId);
+    } catch (api4Error) {
+      console.error("Error without API version:", api4Error.message);
+      throw new Error(`All API calls failed. Last error: ${api4Error.message}`);
     }
 
     if (paymentDetails.data && paymentDetails.data.length > 0) {
