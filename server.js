@@ -893,7 +893,7 @@ app.get("/api/admin/stats", (req, res) => {
         };
       }
       packageStats[payment.packageName].count++;
-      packageStats[payment.packageName].revenue += payment.amount / 100; // Convert from paise
+      packageStats[payment.packageName].revenue += payment.amount;
     });
 
     // Calculate daily statistics for the last 7 days
@@ -913,13 +913,13 @@ app.get("/api/admin/stats", (req, res) => {
       last7Days.push({
         date: dayStart.toISOString().split("T")[0],
         payments: dayPayments.length,
-        revenue: dayPayments.reduce((sum, p) => sum + p.amount / 100, 0),
+        revenue: dayPayments.reduce((sum, p) => sum + p.amount, 0),
       });
     }
 
     const stats = {
       totalPayments: completedPayments.size,
-      totalRevenue: paymentsArray.reduce((sum, p) => sum + p.amount / 100, 0),
+      totalRevenue: paymentsArray.reduce((sum, p) => sum + p.amount, 0),
       totalDownloads: paymentsArray.filter((p) => p.downloaded).length,
       packageStats,
       last7Days,
@@ -930,7 +930,7 @@ app.get("/api/admin/stats", (req, res) => {
           email: p.email,
           fullName: p.fullName,
           packageName: p.packageName,
-          amount: p.amount / 100,
+          amount: p.amount,
           completedAt: p.completedAt,
           downloaded: p.downloaded,
           downloadedAt: p.downloadedAt,
